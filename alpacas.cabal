@@ -1,10 +1,20 @@
-Name:                heart
+Name:                alpacas
 Version:             0.1
-Synopsis:            Project Synopsis Here
-Description:         Project Description Here
-License:             AllRightsReserved
-Author:              Author
-Maintainer:          maintainer@example.com
+Synopsis:            Experimental Web-based development environment
+Description:         A Library for Programming A Client And Server
+                     .
+                     Web server that can reload itself, XMonad-style,
+                     and has the ability to write its own
+                     configuration file.
+                     .
+
+                     The idea is that it will be a development
+                     environment that's inherently extensible, like
+                     emacs, except using a modern platform (the Web).
+License:             BSD3
+License-File:        LICENSE
+Author:              Josh Hoyt
+Maintainer:          joshhoyt@gmail.com
 Stability:           Experimental
 Category:            Web
 Build-type:          Simple
@@ -13,10 +23,10 @@ Cabal-version:       >=1.2
 Library
   hs-source-dirs: src
   Exposed-Modules:
-    Heart,
-    Server
+    Alpacas,
+    Alpacas.Server
 
-Executable heart
+Executable alpacas
   hs-source-dirs: src
   main-is: Main.hs
 

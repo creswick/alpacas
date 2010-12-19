@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Server
+module Alpacas.Server
     ( ServerConfig(..)
     , emptyServerConfig
     , commandLineConfig

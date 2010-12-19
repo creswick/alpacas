@@ -1,9 +1,9 @@
 module Main (main) where
 
-import Heart
+import Alpacas
 
 pfx :: ShowS
-pfx = showString "/home/j3h/mine/heart/"
+pfx = showString "/home/j3h/mine/alpacas/"
 
 ifx :: String -> ShowS
 ifx s = showString s . pfx
@@ -15,4 +15,4 @@ ghcOpts = [ "-i" `ifx` "src"
           ]
 
 main :: IO ()
-main = heartMain ghcOpts defaultConfig
+main = alpacasMain ghcOpts defaultConfig
