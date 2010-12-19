@@ -18,10 +18,15 @@ ALPACAS TODO
 
   - You can get into a hosed state with a stale binary
 
-- Reload action doesn't always return a page
+  - Reload action doesn't always return a page
 
-  - We're better off now that it's not returning a 500, so we can
-    defer this for now
+    - We're better off now that it's not returning a 500, so we can
+      defer this for now
+
+      The 500 status code was triggering `an infelicity in Chrome
+      <http://code.google.com/p/chromium/issues/detail?id=66062>`_
+      that made the browser refuse to send a request to the reload
+      action.
 
 - Next features
 
