@@ -14,7 +14,7 @@ ALPACAS TODO
 
   - Namespace clutter
 
-  - There's no way to update the Heart library from within itself
+  - There's no way to update the ALPACAS library from within itself
 
   - You can get into a hosed state with a stale binary
 
