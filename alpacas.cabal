@@ -7,7 +7,6 @@ Description:         A Library for Programming A Client And Server
                      and has the ability to write its own
                      configuration file.
                      .
-
                      The idea is that it will be a development
                      environment that's inherently extensible, like
                      emacs, except using a modern platform (the Web).

@@ -28,12 +28,29 @@ ALPACAS TODO
       that made the browser refuse to send a request to the reload
       action.
 
+  - `Snap <http://snapframework.com/>`_ doesn't let us exit the server
+    without raising an `AsyncException
+    <http://hackage.haskell.org/packages/archive/base/4.2.0.0/doc/html/Control-Exception.html#t%3AAsyncException>`_. Right
+    now, we're using ``UserInterrupt`` to signal exit, but that makes
+    the command-line interface gross. We need to submit a patch to
+    ``snap-server`` that gives us a function to call that will exit
+    the server.
+
+    This will still be a bit tricky, because we'll have to decide what
+    to do with the existing connections to the server.
+
+  - Ideally, we'd hold on to the open connections when we restart the
+    server (especially the server socket, and just let the connections
+    queue until we're back up). This is a tricky one.
+
 - Next features
 
   - File reading/writing via a crude textarea interface (finish
     bootstrapping)
 
   - Packaging script that builds a repository
+
+  - AJAX status about the reloading state
 
 - Minimum dependencies:
 
