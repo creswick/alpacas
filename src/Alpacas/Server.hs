@@ -19,7 +19,8 @@ import           Snap.Types
 import           Snap.Util.GZip
 import           System hiding (getEnv)
 import           System.Posix.Env
-import qualified Text.XHtmlCombinators.Escape as XH
+import           Text.Blaze ( text )
+import           Text.Blaze.Renderer.Utf8 ( renderHtml )
 
 
 data ServerConfig = ServerConfig
@@ -52,7 +53,7 @@ emptyServerConfig = ServerConfig
         writeBS "<body><h1>Internal Server Error</h1>"
         writeBS "<p>A web handler threw an exception. Details:</p>"
         writeBS "<pre>\n"
-        writeText $ XH.escape t
+        writeLBS $ renderHtml $ text t
         writeBS "\n</pre></body></html>"
     }
 
