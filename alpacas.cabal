@@ -17,13 +17,16 @@ Maintainer:          joshhoyt@gmail.com
 Stability:           Experimental
 Category:            Web
 Build-type:          Simple
-Cabal-version:       >=1.2
+Cabal-version:       >=1.6
 
 Library
   hs-source-dirs: src
   Exposed-Modules:
     Alpacas,
-    Alpacas.Server
+    Alpacas.Types,
+    Alpacas.Server,
+    Alpacas.EditConfig,
+    Alpacas.ReadWriteFile
 
 Executable alpacas
   hs-source-dirs: src
