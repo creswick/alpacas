@@ -43,7 +43,15 @@ ALPACAS TODO
     server (especially the server socket, and just let the connections
     queue until we're back up). This is a tricky one.
 
+  - pfx must end with a trailing slash
+  - edit-config needs a link to home page / reload button.
+
 - Next features
+  - Make a trivial web server 'kernel' that has very basic
+    capabilities: edit config, reload, and proxies all "real" requests
+    to a child process that runs the functional web server.  (This
+    makes it so that you can see the console output while reloading,
+    gives a safety net if you break things, etc..)
 
   - File reading/writing via a crude textarea interface (finish
     bootstrapping)
