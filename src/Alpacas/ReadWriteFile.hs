@@ -20,36 +20,60 @@ dirListing :: Editable -> Snap ()
 dirListing (Editable _root) = undefined
 
 editFile :: FilePath -> Snap ()
-editFile fn = method GET (showEdit fn) <|>
+editFile fn = method GET (respondPage =<< showEdit fn) <|>
               method POST (doUpdate fn)
 
 -- XXX: redirect to show action instead of showing again
+-- XXX: this requires the URL to the page
 doUpdate :: FilePath -> Snap ()
 doUpdate fn = do
   contentVal <- getParam "content"
   case contentVal of
-    Nothing -> showEdit fn
+    Nothing -> respondPage =<< showEdit fn
     Just v  ->
         do let d = takeDirectory fn
            liftIO $ createDirectoryIfMissing True d
            liftIO $ B.writeFile fn v
-           showEdit fn
+           respondPage =<< showEdit fn
 
-showEdit :: FilePath -> Snap ()
-showEdit fn = do
+data Page = Page { pageTitle   :: H.Html
+                 , pageHead    :: H.Html
+                 , pageContent :: H.Html
+                 }
+
+noHtml :: H.Html
+noHtml = return ()
+
+page :: H.Html -> Page
+page t = Page { pageTitle = t
+              , pageHead = noHtml
+              , pageContent = noHtml
+              }
+
+respondPage :: Page -> Snap ()
+respondPage p = do
   modifyResponse $ setContentType "text/html"
+  writeLBS $ renderHtml $ H.docTypeHtml $
+    do H.head $ do
+         H.title $ pageTitle p
+         pageHead p
+       H.body $ do
+         H.h1 $ pageTitle p
+         pageContent p
+
+showEdit :: FilePath -> Snap Page
+showEdit fn = do
   c <- liftIO $ T.readFile fn `catch` \e ->
        if isDoesNotExistError e
        then return ""
        else ioError e
-  writeLBS $ renderHtml $ H.docTypeHtml $
-    do H.head $ H.title $ H.string fn
-       H.body $ do
-         H.h1 $ H.string fn
-         (H.form ! A.method "post") $ do
+
+  let content = (H.form ! A.method "post") $ do
                   (H.textarea
                    ! A.rows "50"
                    ! A.cols "80"
                    ! A.name "content") $ H.text c
                   H.br
                   H.input ! A.type_ "submit" ! A.value "Save"
+
+  return $ (page $ H.string fn) { pageContent = content }
