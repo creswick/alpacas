@@ -1,12 +1,13 @@
 module Main (main) where
 
 import Alpacas
+import System.FilePath ( (</>) )
 
-pfx :: ShowS
-pfx = showString "/home/j3h/mine/alpacas/"
+pfx :: FilePath
+pfx = "/home/j3h/mine/alpacas/"
 
-ifx :: String -> ShowS
-ifx s = showString s . pfx
+ifx :: String -> FilePath -> String
+ifx s fn = showString s $ pfx </> fn
 
 ghcOpts :: [String]
 ghcOpts = [ "-i" `ifx` "src"

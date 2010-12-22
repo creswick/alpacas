@@ -10,6 +10,7 @@ import Control.Exception ( throwIO
                          )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Prelude hiding ( catch )
+import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody )
 import Alpacas.Types ( Config(..) )
 import Alpacas.Server ( emptyServerConfig, server
                       , ServerConfig(error500Handler) )
@@ -17,7 +18,6 @@ import Alpacas.EditConfig ( editConfig )
 import Snap.Types
 import Snap.Util.FileServe
 import Text.Blaze.Html5 ( (!) )
-import Text.Blaze.Renderer.Utf8 ( renderHtml )
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Config.Dyre as Dyre
@@ -27,14 +27,18 @@ data State  = State { bufferLines :: [String] } deriving (Read, Show)
 
 defaultApp :: Dyre.Params Config -> Config -> Snap ()
 defaultApp params cfg =
-    ifTop (statusPage cfg) <|>
+    ifTop (respondPage (renderer cfg) (statusPage cfg))<|>
     route [ ("reload", reloadServer)
-          , ("edit-config", editConfig params)
+          , ("edit-config", editConfig params (renderer cfg))
           ] <|>
     fileServe "."
 
 defaultConfig :: Dyre.Params Config -> Config
-defaultConfig params = Config "ALPACAS v0.1" Nothing (defaultApp params)
+defaultConfig params =
+    Config "ALPACAS v0.1" Nothing (defaultApp params) render
+        where
+          render = renderPage . modifyBody addNav
+          addNav h = navControls defaultNavItems >> h
 
 showError :: Config -> String -> Config
 showError cfg msg = cfg { errorMsg = Just msg }
@@ -76,27 +80,36 @@ alpacasMain ghcOpts getCfg = Dyre.wrapMain params cfg
       cfg = getCfg params
       params = Dyre.defaultParams
                { Dyre.projectName = "alpacas"
-               , Dyre.realMain    = realMain . cfgApp cfg
+               , Dyre.realMain    = \cfg1 -> realMain $ cfgApp cfg1 cfg1
                , Dyre.showError   = showError
                , Dyre.ghcOpts     = ghcOpts
                , Dyre.forceRecomp = True
                }
 
+navControls :: [NavItem] -> H.Html
+navControls = (H.ul ! A.class_ "navigation") . mapM_ mkNavItem
+    where
+      mkNavItem (NavItem pth lbl) = H.li $ H.a ! A.href pth $ H.text lbl
 
-statusPage :: Config -> Snap ()
+data NavItem = NavItem H.AttributeValue T.Text
+
+defaultNavItems :: [NavItem]
+defaultNavItems = [ "/reload" |-| "reload server"
+                  , "/edit-config" |-| "edit configuration"
+                  ]
+    where
+      (|-|) = NavItem
+
+statusPage :: Config -> Page
 statusPage cfg =
-    let t = T.pack $ "Status - " ++ message cfg
-        noError = H.p $ H.text "Started OK!"
-        errorHtml e = H.pre $ H.string e
-    in writeLBS $ renderHtml $ H.docTypeHtml $ do
-      H.head $ H.title $ H.text t
-      H.body $ do
-        H.h1 $ H.text t
-        H.p $ do
-          H.a ! A.href "/reload" $ H.text "reload"
-          H.text " | "
-          H.a ! A.href "/edit-config" $ H.text "edit configuration"
-        maybe noError errorHtml $ errorMsg cfg
+    let t = H.text $ T.pack $ "Status - " ++ message cfg
+    in Page { pageTitle = t
+            , pageHead = noHtml
+            , pageContent =
+                case errorMsg cfg of
+                  Nothing -> H.p $ H.text "Started OK!"
+                  Just e  -> H.pre $ H.string e
+            }
 
 reloadServer :: MonadIO m => m a
 reloadServer = liftIO $ throwIO UserInterrupt

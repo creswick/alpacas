@@ -8,8 +8,9 @@ import Config.Dyre.Paths      ( getPaths )
 import Config.Dyre.Params     ( Params )
 import Alpacas.Types          ( Config )
 import Snap.Types             ( Snap )
+import Alpacas.Page           ( Renderer )
 
-editConfig :: Params Config -> Snap ()
-editConfig params = do
+editConfig :: Params Config -> Renderer -> Snap ()
+editConfig params r = do
   (_,_,configFile,_) <- liftIO $ getPaths params
-  editFile configFile
+  editFile configFile r
