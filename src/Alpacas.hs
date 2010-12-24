@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, ScopedTypeVariables #-}
 module Alpacas where
 
 import Config.Dyre.Relaunch
@@ -7,47 +7,103 @@ import Control.Concurrent ( throwTo, myThreadId, forkIO, threadDelay )
 import Control.Exception ( throwIO
                          , Exception(..)
                          , AsyncException(UserInterrupt)
+                         , SomeException
                          )
+import Control.Monad.CatchIO ( throw, catch )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Prelude hiding ( catch )
-import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody )
+import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody, page, Renderer, scriptToHtml, appendBody, addCss, AlterPage, Stylesheet(..), addScript, Script(..) )
+import Alpacas.ReadWriteFile ( editFile )
 import Alpacas.Types ( Config(..) )
-import Alpacas.Server ( emptyServerConfig, server
-                      , ServerConfig(error500Handler) )
-import Alpacas.EditConfig ( editConfig )
 import Snap.Types
 import Snap.Util.FileServe
 import Text.Blaze.Html5 ( (!) )
+import System.FilePath ( (</>), takeDirectory )
+import qualified Snap.Http.Server as Snap
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Config.Dyre as Dyre
+import qualified Config.Dyre.Paths as Dyre
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as E
+import qualified Data.ByteString as B
 
 data State  = State { bufferLines :: [String] } deriving (Read, Show)
 
 defaultApp :: Dyre.Params Config -> Config -> Snap ()
 defaultApp params cfg =
-    ifTop (respondPage (renderer cfg) (statusPage cfg))<|>
-    route [ ("reload", reloadServer)
-          , ("edit-config", editConfig params (renderer cfg))
-          ] <|>
-    fileServe "."
+    let r = renderer cfg . defaultStyles
+        r' = r . addEditJS
+    in ifTop (respondPage r' (statusPage cfg)) <|>
+       path "reload" reloadServer <|>
+       path "find-file" (editFileParam r') <|>
+       do q <- liftIO $ configPath params
+          let editPfx fn = editFile (q </> fn) >>= respondPage r'
+          path "edit-config" (editPfx "alpacas.hs") <|>
+            path "edit-css" (editPfx ("css" </> "default.css")) <|>
+            path "edit-js" (editPfx ("js" </> "alpacas.js")) <|>
+            dir "css" (fileServe $ q </> "css") <|>
+            dir "js" (fileServe (q </> "js"))
+
+configPath :: Dyre.Params Config -> IO FilePath
+configPath p = do (_,_,fn,_) <- Dyre.getPaths p
+                  return $ takeDirectory fn
+
+missingParam :: Snap a
+missingParam = error "Missing parameter (FIXME: should render a 400 page?)"
+
+requireParam :: B.ByteString -> Snap B.ByteString
+requireParam k = do
+ mv <- getParam k
+ case mv of
+   Nothing -> missingParam
+   Just v  -> return v
+
+editFileParam :: Renderer -> Snap ()
+editFileParam r = do
+  fn <- requireParam "filename"
+  editFile (T.unpack $ E.decodeUtf8 fn) >>= respondPage r
+
+defaultStyles :: AlterPage
+defaultStyles = ours . y
+    where
+      y = addCss $ StylesheetLink "http://yui.yahooapis.com/combo?3.2.0/build/cssreset/reset-min.css&3.2.0/build/cssfonts/fonts-min.css&3.2.0/build/cssgrids/grids-min.css"
+      ours = addCss $ StylesheetLink "/css/default.css"
+
+addEditJS :: AlterPage
+addEditJS = addBodyScript . srcScripts
+ where
+  srcScripts = foldr (\s -> ((addScript $ ScriptSrc s) .)) id ["/js/alpacas.js"]
+  addBodyScript = appendBody $ scriptToHtml $ ScriptInline
+    "window.onload = ALPACAS.init;"
 
 defaultConfig :: Dyre.Params Config -> Config
-defaultConfig params =
-    Config "ALPACAS v0.1" Nothing (defaultApp params) render
-        where
-          render = renderPage . modifyBody addNav
-          addNav h = navControls defaultNavItems >> h
+defaultConfig params = cfg
+    where
+      cfg = Config "ALPACAS v0.1" Nothing (defaultApp params) s render
+      render = renderPage . modifyBody addNav
+      addNav h = navControls defaultNavItems >> h
+      s = Snap.setErrorHandler (error500Handler cfg) Snap.defaultConfig
 
 showError :: Config -> String -> Config
 showError cfg msg = cfg { errorMsg = Just msg }
 
-realMain :: Snap () -> IO ()
-realMain app = do
+error500Handler :: Config -> SomeException -> Snap ()
+error500Handler cfg e = do
+  let r = setContentType "text/html; charset=utf-8" $
+          setResponseStatus 500 "Internal Server Error" emptyResponse
+      t = "Internal Server Error"
+      c = do
+        H.h1 t
+        H.p "A web handler threw an exception. Details:"
+        H.pre $ H.string $ show e
+  putResponse r
+  respondPage (renderer cfg) (page t) { pageContent = c }
+
+realMain :: Snap.Config Snap () -> Snap () -> IO ()
+realMain serverCfg app = do
   mainThread <- myThreadId
-  let serverCfg = emptyServerConfig
-      errHandler e =
+  let errHandler e =
           case fromException e of
             -- FIXME: We are using UserInterrupt here because it's one
             -- of the few exceptions that Snap will allow to bubble up
@@ -64,11 +120,11 @@ realMain app = do
                                              throwTo mainThread e
                    -- FIXME: Fix this hard-coded URL
                    redirect "http://localhost:8000/"
-            _ -> error500Handler serverCfg e
+            _ -> maybe throw id (Snap.getErrorHandler serverCfg) e
 
-      serverCfg' = serverCfg { error500Handler = errHandler }
+      serverCfg' = Snap.setErrorHandler errHandler serverCfg
 
-  server serverCfg' app
+  Snap.httpServe serverCfg' app `catch` \(e::SomeException) -> print e
   putStrLn "Reloading server"
   relaunchMaster Nothing
 
@@ -80,7 +136,8 @@ alpacasMain ghcOpts getCfg = Dyre.wrapMain params cfg
       cfg = getCfg params
       params = Dyre.defaultParams
                { Dyre.projectName = "alpacas"
-               , Dyre.realMain    = \cfg1 -> realMain $ cfgApp cfg1 cfg1
+               , Dyre.realMain    = \cfg1 -> realMain (cfgServer cfg1) $
+                                    cfgApp cfg1 cfg1
                , Dyre.showError   = showError
                , Dyre.ghcOpts     = ghcOpts
                , Dyre.forceRecomp = True
@@ -90,14 +147,24 @@ navControls :: [NavItem] -> H.Html
 navControls = (H.ul ! A.class_ "navigation") . mapM_ mkNavItem
     where
       mkNavItem (NavItem pth lbl) = H.li $ H.a ! A.href pth $ H.text lbl
+      mkNavItem (NavCustom h) = H.li h
 
 data NavItem = NavItem H.AttributeValue T.Text
+             | NavCustom H.Html
 
 defaultNavItems :: [NavItem]
-defaultNavItems = [ "/reload" |-| "reload server"
+defaultNavItems = [ "/"            |-| "home"
                   , "/edit-config" |-| "edit configuration"
+                  , "/edit-css"    |-| "edit css"
+                  , "/edit-js"     |-| "edit javascript"
+                  , "/edit-config" |-| "edit config"
+                  , "/reload"      |-| "reload server"
+                  , NavCustom editFileForm
                   ]
     where
+      editFileForm = H.form ! A.method "post" ! A.action "/find-file" $ do
+                       H.label ! A.for "find-file-input" $ "find file: "
+                       H.input ! A.type_ "text" ! A.name "filename" ! A.id "find-file-input"
       (|-|) = NavItem
 
 statusPage :: Config -> Page
