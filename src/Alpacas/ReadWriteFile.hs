@@ -3,77 +3,68 @@ module Alpacas.ReadWriteFile where
 
 import Control.Applicative      ( (<|>) )
 import Control.Monad.IO.Class   ( liftIO )
+import Data.String              ( fromString )
 import Snap.Types
 import System.IO.Error          ( isDoesNotExistError )
 import Text.Blaze.Html5         ( (!) )
-import Text.Blaze.Renderer.Utf8 ( renderHtml )
 import System.FilePath          ( takeDirectory )
 import System.Directory         ( createDirectoryIfMissing )
-import qualified Data.Text.IO as T
-import qualified Text.Blaze.Html5 as H
+import Alpacas.Page             ( Page(..), page )
+import qualified Data.Text                   as T
+import qualified Data.Text.IO                as T
+import qualified Text.Blaze.Html5            as H
 import qualified Text.Blaze.Html5.Attributes as A
-import qualified Data.ByteString as B
+import qualified Data.ByteString             as B
 
-data Editable = Editable FilePath
-
-dirListing :: Editable -> Snap ()
-dirListing (Editable _root) = undefined
-
-editFile :: FilePath -> Snap ()
-editFile fn = method GET (respondPage =<< showEdit fn) <|>
-              method POST (doUpdate fn)
+editFile :: FilePath -> Snap Page
+editFile fn = do
+  method GET (return ()) <|> method POST (doUpdate fn)
+  liftIO (showEdit fn)
 
 -- XXX: redirect to show action instead of showing again
 -- XXX: this requires the URL to the page
 doUpdate :: FilePath -> Snap ()
 doUpdate fn = do
   contentVal <- getParam "content"
-  case contentVal of
-    Nothing -> respondPage =<< showEdit fn
-    Just v  ->
-        do let d = takeDirectory fn
-           liftIO $ createDirectoryIfMissing True d
-           liftIO $ B.writeFile fn v
-           respondPage =<< showEdit fn
+  liftIO $ case contentVal of
+             Nothing -> return ()
+             Just v  ->
+                 do let d = takeDirectory fn
+                    createDirectoryIfMissing True d
+                    B.writeFile fn v
 
-data Page = Page { pageTitle   :: H.Html
-                 , pageHead    :: H.Html
-                 , pageContent :: H.Html
-                 }
+data EditForm =
+    EditForm { efContent  :: Maybe T.Text
+             , efFileName :: Maybe FilePath
+             , efAction   :: Maybe T.Text
+             }
 
-noHtml :: H.Html
-noHtml = return ()
+renderEditForm :: EditForm -> H.Html
+renderEditForm ef =
+    formTag $ do
+      textArea $ H.text $ maybe T.empty id $ efContent ef
+      H.br
+      maybe (return ()) fnTag $ efFileName ef
+      H.input ! A.type_ "submit" ! A.value "Save"
+    where
+      textArea = H.textarea ! A.rows "50" ! A.cols "80" ! A.name "content"
+      formTag = action $ H.form ! A.method "post"
+      fnTag fn = H.input
+                 ! A.type_ "hidden"
+                 ! A.name "filename"
+                 ! A.value (fromString fn)
+      action = maybe id (\u -> (! A.action (fromString $ T.unpack u))) $
+               efAction ef
 
-page :: H.Html -> Page
-page t = Page { pageTitle = t
-              , pageHead = noHtml
-              , pageContent = noHtml
-              }
+loadFileContent :: FilePath -> IO (Maybe T.Text)
+loadFileContent fn =
+    (Just `fmap` T.readFile fn) `catch` \e ->
+        if isDoesNotExistError e
+        then return Nothing
+        else ioError e
 
-respondPage :: Page -> Snap ()
-respondPage p = do
-  modifyResponse $ setContentType "text/html"
-  writeLBS $ renderHtml $ H.docTypeHtml $
-    do H.head $ do
-         H.title $ pageTitle p
-         pageHead p
-       H.body $ do
-         H.h1 $ pageTitle p
-         pageContent p
-
-showEdit :: FilePath -> Snap Page
+showEdit :: FilePath -> IO Page
 showEdit fn = do
-  c <- liftIO $ T.readFile fn `catch` \e ->
-       if isDoesNotExistError e
-       then return ""
-       else ioError e
-
-  let content = (H.form ! A.method "post") $ do
-                  (H.textarea
-                   ! A.rows "50"
-                   ! A.cols "80"
-                   ! A.name "content") $ H.text c
-                  H.br
-                  H.input ! A.type_ "submit" ! A.value "Save"
-
-  return $ (page $ H.string fn) { pageContent = content }
+  c <- liftIO $ loadFileContent fn
+  let f = renderEditForm $ EditForm c (Just fn) Nothing
+  return $ (page $ H.string fn) { pageContent = f }
