@@ -37,8 +37,8 @@ Executable alpacas
     directory == 1.0.*,
     dyre == 0.8.*,
     bytestring >= 0.9.1 && <0.10,
-    snap-core == 0.3.0.*,
-    snap-server == 0.3.0.*,
+    snap-core == 0.3.1.*,
+    snap-server == 0.3.1.*,
     text,
     filepath >= 1.1 && <1.2,
 
