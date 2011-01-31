@@ -5,15 +5,14 @@ import Config.Dyre.Relaunch
 import Control.Applicative ( (<|>), (<$>) )
 import Control.Concurrent.MVar ( newEmptyMVar, tryPutMVar, tryTakeMVar )
 import GHC.Conc ( ThreadStatus(..), threadStatus )
-import Control.Concurrent ( throwTo, myThreadId, forkIO, threadDelay, killThread )
+import Control.Concurrent ( myThreadId, threadDelay, killThread )
 import Control.Exception ( throwIO
-                         , Exception(..)
                          , AsyncException(ThreadKilled)
                          , SomeException
                          , evaluate
                          )
 import Control.Monad ( unless, when )
-import Control.Monad.CatchIO ( throw, catch )
+import Control.Monad.CatchIO ( catch )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Data.Maybe ( fromMaybe )
 import Prelude hiding ( catch )
@@ -34,29 +33,41 @@ import qualified Config.Dyre.Paths as Dyre
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
 import qualified Data.ByteString as B
+import Paths_alpacas ( getDataDir )
 
 data State  = State { bufferLines :: [String] } deriving (Read, Show)
 
 defaultApp :: Dyre.Params Config -> Config -> IO () -> Snap ()
-defaultApp params cfg reloadServer =
-    let r = renderer cfg . defaultStyles
-        r' = r . addEditJS
-        choice = foldr1 (<|>)
-        app = choice [ ifTop $ respondPage r' $ statusPage cfg
-                     , path "reload" $ do
-                       liftIO reloadServer
-                       redirect "http://localhost:8000/"
-                     , path "find-file" $ editFileParam r'
-                     , do q <- liftIO $ configPath params
-                          let editPfx fn = editFile (q </> fn) >>= respondPage r'
-                          choice [ path "edit-config" $ editPfx "alpacas.hs"
-                                 , path "edit-css"    $ editPfx $ "css" </> "default.css"
-                                 , path "edit-js"     $ editPfx $ "js" </> "alpacas.js"
-                                 , dir "css"          $ fileServe $ q </> "css"
-                                 , dir "js"           $ fileServe $ q </> "js"
-                                 ]
+defaultApp params cfg reloadServer = do
+  dataDir <- liftIO getDataDir
+  let r = renderer cfg . defaultStyles
+      r' = r . addEditJS
+      choice = foldr1 (<|>)
+  choice [ ifTop $ respondPage r' $ statusPage cfg
+
+         , path "reload" $ do
+           liftIO reloadServer
+           redirect "http://localhost:8000/"
+
+         , path "find-file" $ editFileParam r'
+
+         , do q <- liftIO $ configPath params
+              let editPfx fn = editFile (q </> fn) >>= respondPage r'
+
+              choice [ path "edit-config" $ editPfx "alpacas.hs"
+
+                     , path "edit-css"    $ editPfx $ "css" </> "default.css"
+
+                     , path "edit-js"     $ editPfx $ "js" </> "alpacas.js"
+
+                     , dir "css" $
+                       choice [ fileServe $ q </> "css"
+                              , fileServe $ dataDir </> "examples" </> "j3h" </> "css"
+                              ]
+
+                     , dir "js"           $ fileServe $ q </> "js"
                      ]
-    in app
+         ]
 
 configPath :: Dyre.Params a -> IO FilePath
 configPath p = do (_,_,fn,_) <- Dyre.getPaths p
@@ -93,7 +104,7 @@ addEditJS = addBodyScript . srcScripts
 defaultConfig :: Dyre.Params Config -> Config
 defaultConfig params = cfg
     where
-      cfg = Config "ALPACAS v0.1" Nothing (defaultApp params) s render
+      cfg = Config "ALPACAS v0.2" Nothing (defaultApp params) s render
       render = renderPage . modifyBody addNav
       addNav h = navControls defaultNavItems >> h
       s = Snap.setErrorHandler (error500Handler cfg) Snap.defaultConfig
@@ -153,9 +164,8 @@ realMain serverCfg mkApp = do
 -- | XXX: add GHC parameters to add the right location
 -- There's a bootstrapping problem with the GHC options
 alpacasMain :: (Dyre.Params Config -> Config) -> IO ()
-alpacasMain cfg = do
-  params' <- initializeConfiguration params
-  Dyre.wrapMain params' $ cfg params'
+alpacasMain cfg = do params' <- initializeConfiguration params
+                     Dyre.wrapMain params' $ cfg params'
     where
       params = Dyre.defaultParams
                { Dyre.projectName = "alpacas"
@@ -168,9 +178,11 @@ alpacasMain cfg = do
 
 initializeConfiguration :: Dyre.Params a -> IO (Dyre.Params a)
 initializeConfiguration p = do
-  cfgPth <- configPath p
-  createDirectoryIfMissing True cfgPth
-  mGhcOpts <- setGHCOpts cfgPth
+  (_,customBinaryName,cfgFileName,_) <- Dyre.getPaths p
+  let cachePath = takeDirectory customBinaryName
+  let cfgPath = takeDirectory cfgFileName
+  mapM_ (createDirectoryIfMissing True) [cfgPath, cachePath]
+  mGhcOpts <- setGHCOpts cfgPath
   return p { Dyre.ghcOpts = fromMaybe (Dyre.ghcOpts p) mGhcOpts }
 
 setGHCOpts :: FilePath -> IO (Maybe [String])
@@ -179,7 +191,6 @@ setGHCOpts cfgPth =
       onErr e  = do
         putStrLn $ "Error loading GHC options: " ++ show e
         unless (isDoesNotExistError e) (ioError e)
-        putStrLn $ "Options file does not exist: " ++ show e
         return Nothing
   in loadOpts `catch` onErr
 
