@@ -33,7 +33,8 @@ import qualified Config.Dyre.Paths as Dyre
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
 import qualified Data.ByteString as B
-import Paths_alpacas ( getDataDir )
+import Data.Version ( showVersion )
+import Paths_alpacas ( getDataDir, version )
 
 data State  = State { bufferLines :: [String] } deriving (Read, Show)
 
@@ -104,7 +105,7 @@ addEditJS = addBodyScript . srcScripts
 defaultConfig :: Dyre.Params Config -> Config
 defaultConfig params = cfg
     where
-      cfg = Config "ALPACAS v0.2" Nothing (defaultApp params) s render
+      cfg = Config ("ALPACAS v" ++ showVersion version) Nothing (defaultApp params) s render
       render = renderPage . modifyBody addNav
       addNav h = navControls defaultNavItems >> h
       s = Snap.setErrorHandler (error500Handler cfg) Snap.defaultConfig
