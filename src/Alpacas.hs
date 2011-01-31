@@ -2,12 +2,13 @@
 module Alpacas where
 
 import Config.Dyre.Relaunch
-import Control.Applicative ( (<|>) )
+import Control.Applicative ( (<|>), (<$>) )
 import Control.Concurrent ( throwTo, myThreadId, forkIO, threadDelay )
 import Control.Exception ( throwIO
                          , Exception(..)
                          , AsyncException(UserInterrupt)
                          , SomeException
+                         , evaluate
                          )
 import Control.Monad.CatchIO ( throw, catch )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
@@ -18,6 +19,7 @@ import Alpacas.Types ( Config(..) )
 import Snap.Types
 import Snap.Util.FileServe
 import Text.Blaze.Html5 ( (!) )
+import System.IO.Error ( isDoesNotExistError )
 import System.FilePath ( (</>), takeDirectory )
 import qualified Snap.Http.Server as Snap
 import qualified Text.Blaze.Html5 as H
@@ -45,7 +47,7 @@ defaultApp params cfg =
             dir "css" (fileServe $ q </> "css") <|>
             dir "js" (fileServe (q </> "js"))
 
-configPath :: Dyre.Params Config -> IO FilePath
+configPath :: Dyre.Params a -> IO FilePath
 configPath p = do (_,_,fn,_) <- Dyre.getPaths p
                   return $ takeDirectory fn
 
@@ -130,18 +132,43 @@ realMain serverCfg app = do
 
 -- | XXX: add GHC parameters to add the right location
 -- There's a bootstrapping problem with the GHC options
-alpacasMain :: [String] -> (Dyre.Params Config -> Config) -> IO ()
-alpacasMain ghcOpts getCfg = Dyre.wrapMain params cfg
+alpacasMain :: (Dyre.Params Config -> Config) -> IO ()
+alpacasMain cfg = do
+  params' <- setGHCOpts params
+  Dyre.wrapMain params' $ cfg params'
     where
-      cfg = getCfg params
       params = Dyre.defaultParams
                { Dyre.projectName = "alpacas"
                , Dyre.realMain    = \cfg1 -> realMain (cfgServer cfg1) $
                                     cfgApp cfg1 cfg1
                , Dyre.showError   = showError
-               , Dyre.ghcOpts     = ghcOpts
+               , Dyre.ghcOpts     = []
                , Dyre.forceRecomp = True
                }
+
+setGHCOpts :: Dyre.Params a -> IO (Dyre.Params a)
+setGHCOpts p = do
+  cfgPth <- configPath p
+  let optsFile = cfgPth </> "ghc-opts"
+  let loadOpts = do
+        opts <- loadGHCOpts optsFile
+        return p { Dyre.ghcOpts = opts }
+  let notFound = do
+        writeFile optsFile $ unlines $ Dyre.ghcOpts p
+        return p
+  loadOpts `catch` \e -> do
+    putStrLn $ "Error loading GHC options: " ++ show e
+    if isDoesNotExistError e
+      then notFound
+      else ioError e
+
+loadGHCOpts :: FilePath -> IO [String]
+loadGHCOpts ghcOptsFile = do
+  let clean = reverse . dropWhile (== '\r') . reverse
+  ls <- map clean . lines <$> readFile ghcOptsFile
+  evaluate $ length ls
+  putStrLn $ "Loaded GHC options: " ++ show ls
+  return ls
 
 navControls :: [NavItem] -> H.Html
 navControls = (H.ul ! A.class_ "navigation") . mapM_ mkNavItem
