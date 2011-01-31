@@ -42,6 +42,8 @@ ALPACAS TODO
     queue until we're back up). This is a tricky one.
 
 - Next features
+  - Alpacase 'reset', to clear out the .config / .cache / etc. content
+
   - JS console
 
   - goto-line
