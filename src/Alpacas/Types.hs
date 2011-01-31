@@ -10,7 +10,7 @@ data Config =
     Config
     { message :: String
     , errorMsg :: Maybe String
-    , cfgApp :: Config -> Snap ()
+    , cfgApp :: Config -> IO () -> Snap ()
     , cfgServer :: Snap.Config Snap ()
     , renderer :: Renderer
     }
