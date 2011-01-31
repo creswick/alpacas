@@ -31,6 +31,9 @@ Executable alpacas
   hs-source-dirs: src
   main-is: Main.hs
 
+  data-files: examples/j3h/alpacas.hs,
+              examples/j3h/css/default.css
+
   Build-depends:
     base >= 4,
     blaze-html == 0.3.*,
