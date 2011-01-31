@@ -39,16 +39,20 @@ defaultApp :: Dyre.Params Config -> Config -> Snap ()
 defaultApp params cfg =
     let r = renderer cfg . defaultStyles
         r' = r . addEditJS
-    in ifTop (respondPage r' (statusPage cfg)) <|>
-       path "reload" reloadServer <|>
-       path "find-file" (editFileParam r') <|>
-       do q <- liftIO $ configPath params
-          let editPfx fn = editFile (q </> fn) >>= respondPage r'
-          path "edit-config" (editPfx "alpacas.hs") <|>
-            path "edit-css" (editPfx ("css" </> "default.css")) <|>
-            path "edit-js" (editPfx ("js" </> "alpacas.js")) <|>
-            dir "css" (fileServe $ q </> "css") <|>
-            dir "js" (fileServe (q </> "js"))
+        choice = foldr1 (<|>)
+        app = choice [ ifTop $ respondPage r' $ statusPage cfg
+                     , path "reload" reloadServer
+                     , path "find-file" $ editFileParam r'
+                     , do q <- liftIO $ configPath params
+                          let editPfx fn = editFile (q </> fn) >>= respondPage r'
+                          choice [ path "edit-config" $ editPfx "alpacas.hs"
+                                 , path "edit-css"    $ editPfx $ "css" </> "default.css"
+                                 , path "edit-js"     $ editPfx $ "js" </> "alpacas.js"
+                                 , dir "css"          $ fileServe $ q </> "css"
+                                 , dir "js"           $ fileServe $ q </> "js"
+                                 ]
+                     ]
+    in app
 
 configPath :: Dyre.Params a -> IO FilePath
 configPath p = do (_,_,fn,_) <- Dyre.getPaths p
@@ -185,7 +189,6 @@ data NavItem = NavItem H.AttributeValue T.Text
 
 defaultNavItems :: [NavItem]
 defaultNavItems = [ "/"            |-| "home"
-                  , "/edit-config" |-| "edit configuration"
                   , "/edit-css"    |-| "edit css"
                   , "/edit-js"     |-| "edit javascript"
                   , "/edit-config" |-| "edit config"
