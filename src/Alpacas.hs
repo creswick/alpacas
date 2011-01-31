@@ -10,8 +10,10 @@ import Control.Exception ( throwIO
                          , SomeException
                          , evaluate
                          )
+import Control.Monad ( unless )
 import Control.Monad.CatchIO ( throw, catch )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
+import Data.Maybe ( fromMaybe )
 import Prelude hiding ( catch )
 import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody, page, Renderer, scriptToHtml, appendBody, addCss, AlterPage, Stylesheet(..), addScript, Script(..) )
 import Alpacas.ReadWriteFile ( editFile )
@@ -135,7 +137,7 @@ realMain serverCfg app = do
 -- There's a bootstrapping problem with the GHC options
 alpacasMain :: (Dyre.Params Config -> Config) -> IO ()
 alpacasMain cfg = do
-  params' <- setGHCOpts params
+  params' <- initializeConfiguration params
   Dyre.wrapMain params' $ cfg params'
     where
       params = Dyre.defaultParams
@@ -147,22 +149,22 @@ alpacasMain cfg = do
                , Dyre.forceRecomp = True
                }
 
-setGHCOpts :: Dyre.Params a -> IO (Dyre.Params a)
-setGHCOpts p = do
+initializeConfiguration :: Dyre.Params a -> IO (Dyre.Params a)
+initializeConfiguration p = do
   cfgPth <- configPath p
   createDirectoryIfMissing True cfgPth
-  let optsFile = cfgPth </> "ghc-opts"
-  let loadOpts = do
-        opts <- loadGHCOpts optsFile
-        return p { Dyre.ghcOpts = opts }
-  let notFound = do
-        writeFile optsFile $ unlines $ Dyre.ghcOpts p
-        return p
-  loadOpts `catch` \e -> do
-    putStrLn $ "Error loading GHC options: " ++ show e
-    if isDoesNotExistError e
-      then notFound
-      else ioError e
+  mGhcOpts <- setGHCOpts cfgPth
+  return p { Dyre.ghcOpts = fromMaybe (Dyre.ghcOpts p) mGhcOpts }
+
+setGHCOpts :: FilePath -> IO (Maybe [String])
+setGHCOpts cfgPth =
+  let loadOpts = Just `fmap` (loadGHCOpts $ cfgPth </> "ghc-opts")
+      onErr e  = do
+        putStrLn $ "Error loading GHC options: " ++ show e
+        unless (isDoesNotExistError e) (ioError e)
+        putStrLn $ "Options file does not exist: " ++ show e
+        return Nothing
+  in loadOpts `catch` onErr
 
 loadGHCOpts :: FilePath -> IO [String]
 loadGHCOpts ghcOptsFile = do
