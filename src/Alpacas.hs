@@ -183,7 +183,6 @@ data NavItem = NavItem H.AttributeValue T.Text
 
 defaultNavItems :: [NavItem]
 defaultNavItems = [ "/"            |-| "home"
-                  , "/edit-config" |-| "edit configuration"
                   , "/edit-css"    |-| "edit css"
                   , "/edit-js"     |-| "edit javascript"
                   , "/edit-config" |-| "edit config"
