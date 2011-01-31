@@ -19,6 +19,9 @@ Category:            Web
 Build-type:          Simple
 Cabal-version:       >=1.6
 
+data-files: examples/j3h/alpacas.hs,
+            examples/j3h/css/default.css
+
 Library
   hs-source-dirs: src
   Exposed-Modules:
@@ -30,9 +33,6 @@ Library
 Executable alpacas
   hs-source-dirs: src
   main-is: Main.hs
-
-  data-files: examples/j3h/alpacas.hs,
-              examples/j3h/css/default.css
 
   Build-depends:
     base >= 4,
