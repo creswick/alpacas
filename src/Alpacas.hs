@@ -17,7 +17,7 @@ import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Data.Maybe ( fromMaybe )
 import Prelude hiding ( catch )
 import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody, page, Renderer, scriptToHtml, appendBody, addCss, AlterPage, Stylesheet(..), addScript, Script(..) )
-import Alpacas.ReadWriteFile ( editFile )
+import Alpacas.ReadWriteFile ( editFileWithDefault, editFile )
 import Alpacas.Types ( Config(..) )
 import Snap.Types
 import Snap.Util.FileServe
@@ -53,7 +53,7 @@ defaultApp params cfg reloadServer = do
          , path "find-file" $ editFileParam r'
 
          , do q <- liftIO $ configPath params
-              let editPfx fn = editFile (q </> fn) >>= respondPage r'
+              let editPfx fn = editFileWithDefault (q </> fn) (dataDir </> fn) >>= respondPage r'
 
               choice [ path "edit-config" $ editPfx "alpacas.hs"
 

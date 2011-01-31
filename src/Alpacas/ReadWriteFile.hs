@@ -17,9 +17,15 @@ import qualified Text.Blaze.Html5.Attributes as A
 import qualified Data.ByteString             as B
 
 editFile :: FilePath -> Snap Page
-editFile fn = do
+editFile fn = genericEditFile fn Nothing
+
+editFileWithDefault :: FilePath -> FilePath -> Snap Page
+editFileWithDefault fn def = genericEditFile fn $ Just def
+
+genericEditFile :: FilePath -> Maybe FilePath -> Snap Page
+genericEditFile fn def
   method GET (return ()) <|> method POST (doUpdate fn)
-  liftIO (showEdit fn)
+  liftIO (showEdit fn def)
 
 -- XXX: redirect to show action instead of showing again
 -- XXX: this requires the URL to the page
@@ -37,6 +43,7 @@ data EditForm =
     EditForm { efContent  :: Maybe T.Text
              , efFileName :: Maybe FilePath
              , efAction   :: Maybe T.Text
+             , efDefaultContentPath :: Maybe FilePath
              }
 
 renderEditForm :: EditForm -> H.Html
@@ -46,6 +53,9 @@ renderEditForm ef =
       H.br
       maybe (return ()) fnTag $ efFileName ef
       H.input ! A.type_ "submit" ! A.value "Save"
+      case efDefaultContentPath ef of
+        Nothing -> return ()
+        Just _  -> H.input ! A.type_ "button" ! A.value "Load Default"
     where
       textArea = H.textarea ! A.rows "50" ! A.cols "80" ! A.name "content"
       formTag = action $ H.form ! A.method "post"
@@ -63,8 +73,8 @@ loadFileContent fn =
         then return Nothing
         else ioError e
 
-showEdit :: FilePath -> IO Page
-showEdit fn = do
+showEdit :: FilePath -> Maybe FilePath -> IO Page
+showEdit fn mDef = do
   c <- liftIO $ loadFileContent fn
-  let f = renderEditForm $ EditForm c (Just fn) Nothing
+  let f = renderEditForm $ EditForm c (Just fn) Nothing mDef
   return $ (page $ H.string fn) { pageContent = f }
