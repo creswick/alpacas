@@ -19,6 +19,7 @@ import Alpacas.Types ( Config(..) )
 import Snap.Types
 import Snap.Util.FileServe
 import Text.Blaze.Html5 ( (!) )
+import System.Directory ( createDirectoryIfMissing )
 import System.IO.Error ( isDoesNotExistError )
 import System.FilePath ( (</>), takeDirectory )
 import qualified Snap.Http.Server as Snap
@@ -149,6 +150,7 @@ alpacasMain cfg = do
 setGHCOpts :: Dyre.Params a -> IO (Dyre.Params a)
 setGHCOpts p = do
   cfgPth <- configPath p
+  createDirectoryIfMissing True cfgPth
   let optsFile = cfgPth </> "ghc-opts"
   let loadOpts = do
         opts <- loadGHCOpts optsFile
