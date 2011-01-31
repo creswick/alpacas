@@ -3,15 +3,16 @@ module Alpacas where
 
 import Config.Dyre.Relaunch
 import Control.Applicative ( (<|>), (<$>) )
-import Control.Concurrent ( throwTo, myThreadId, forkIO, threadDelay )
+import Control.Concurrent.MVar ( newEmptyMVar, tryPutMVar, tryTakeMVar )
+import GHC.Conc ( ThreadStatus(..), threadStatus )
+import Control.Concurrent ( myThreadId, threadDelay, killThread )
 import Control.Exception ( throwIO
-                         , Exception(..)
-                         , AsyncException(UserInterrupt)
+                         , AsyncException(ThreadKilled)
                          , SomeException
                          , evaluate
                          )
-import Control.Monad ( unless )
-import Control.Monad.CatchIO ( throw, catch )
+import Control.Monad ( unless, when )
+import Control.Monad.CatchIO ( catch )
 import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Data.Maybe ( fromMaybe )
 import Prelude hiding ( catch )
@@ -32,27 +33,42 @@ import qualified Config.Dyre.Paths as Dyre
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
 import qualified Data.ByteString as B
+import Data.Version ( showVersion )
+import Paths_alpacas ( getDataDir, version )
 
 data State  = State { bufferLines :: [String] } deriving (Read, Show)
 
-defaultApp :: Dyre.Params Config -> Config -> Snap ()
-defaultApp params cfg =
-    let r = renderer cfg . defaultStyles
-        r' = r . addEditJS
-        choice = foldr1 (<|>)
-        app = choice [ ifTop $ respondPage r' $ statusPage cfg
-                     , path "reload" reloadServer
-                     , path "find-file" $ editFileParam r'
-                     , do q <- liftIO $ configPath params
-                          let editPfx fn = editFile (q </> fn) >>= respondPage r'
-                          choice [ path "edit-config" $ editPfx "alpacas.hs"
-                                 , path "edit-css"    $ editPfx $ "css" </> "default.css"
-                                 , path "edit-js"     $ editPfx $ "js" </> "alpacas.js"
-                                 , dir "css"          $ fileServe $ q </> "css"
-                                 , dir "js"           $ fileServe $ q </> "js"
-                                 ]
+defaultApp :: Dyre.Params Config -> Config -> IO () -> Snap ()
+defaultApp params cfg reloadServer = do
+  dataDir <- liftIO getDataDir
+  let r = renderer cfg . defaultStyles
+      r' = r . addEditJS
+      choice = foldr1 (<|>)
+  choice [ ifTop $ respondPage r' $ statusPage cfg
+
+         , path "reload" $ do
+           liftIO reloadServer
+           redirect "http://localhost:8000/"
+
+         , path "find-file" $ editFileParam r'
+
+         , do q <- liftIO $ configPath params
+              let editPfx fn = editFile (q </> fn) >>= respondPage r'
+
+              choice [ path "edit-config" $ editPfx "alpacas.hs"
+
+                     , path "edit-css"    $ editPfx $ "css" </> "default.css"
+
+                     , path "edit-js"     $ editPfx $ "js" </> "alpacas.js"
+
+                     , dir "css" $
+                       choice [ fileServe $ q </> "css"
+                              , fileServe $ dataDir </> "examples" </> "j3h" </> "css"
+                              ]
+
+                     , dir "js"           $ fileServe $ q </> "js"
                      ]
-    in app
+         ]
 
 configPath :: Dyre.Params a -> IO FilePath
 configPath p = do (_,_,fn,_) <- Dyre.getPaths p
@@ -89,7 +105,7 @@ addEditJS = addBodyScript . srcScripts
 defaultConfig :: Dyre.Params Config -> Config
 defaultConfig params = cfg
     where
-      cfg = Config "ALPACAS v0.1" Nothing (defaultApp params) s render
+      cfg = Config ("ALPACAS v" ++ showVersion version) Nothing (defaultApp params) s render
       render = renderPage . modifyBody addNav
       addNav h = navControls defaultNavItems >> h
       s = Snap.setErrorHandler (error500Handler cfg) Snap.defaultConfig
@@ -109,40 +125,48 @@ error500Handler cfg e = do
   putResponse r
   respondPage (renderer cfg) (page t) { pageContent = c }
 
-realMain :: Snap.Config Snap () -> Snap () -> IO ()
-realMain serverCfg app = do
+realMain :: Snap.Config Snap () -> (IO () -> Snap ()) -> IO ()
+realMain serverCfg mkApp = do
   mainThread <- myThreadId
-  let errHandler e =
-          case fromException e of
-            -- FIXME: We are using UserInterrupt here because it's one
-            -- of the few exceptions that Snap will allow to bubble up
-            -- and kill the server. Ideally, we would have an
-            -- exception type that's specifically for stopping the
-            -- server, distinguishable from UserInterrupt. This works
-            -- for now, because if you send it ^C twice, it will
-            -- likely not be back in this handler yet.
-            Just UserInterrupt ->
-                do -- FIXME: this is a very crude way of attempting to
-                   -- allow a response for this action to be received
-                   -- by the client before the server re-loads
-                   _ <- liftIO $ forkIO $ do threadDelay 10000
-                                             throwTo mainThread e
-                   -- FIXME: Fix this hard-coded URL
-                   redirect "http://localhost:8000/"
-            _ -> maybe throw id (Snap.getErrorHandler serverCfg) e
-
-      serverCfg' = Snap.setErrorHandler errHandler serverCfg
-
-  Snap.httpServe serverCfg' app `catch` \(e::SomeException) -> print e
-  putStrLn "Reloading server"
-  relaunchMaster Nothing
+  killerVar <- newEmptyMVar
+  let reload = do
+        amKiller <- tryPutMVar killerVar =<< myThreadId
+        when amKiller $ killThread mainThread
+      app = mkApp reload
+      waitTimeout = 1000 -- msec
+      pollInterval = 100 -- msec
+      waitForThread t k = go (t `div` pollInterval)
+        where
+          go 0 = return ()
+          go n = do
+            -- XXX: Eventually, this may cause a problem, since the
+            -- ThreadId may be for a thread that's already been
+            -- garbage collected. The GHC documentation says that
+            -- holding on to a ThreadId will keep the thread alive for
+            -- now, but that will change later on.
+            st <- threadStatus k
+            case st of
+              ThreadDied -> return ()
+              ThreadFinished -> return ()
+              _ -> do
+                threadDelay (pollInterval * 1000)
+                go $ n - 1
+  Snap.httpServe serverCfg app `catch` \e ->
+    case e of
+      ThreadKilled -> do
+        mKillerId <- tryTakeMVar killerVar
+        case mKillerId of
+          Nothing -> return ()
+          Just killerId -> waitForThread waitTimeout killerId
+        putStrLn "Reloading server"
+        relaunchMaster Nothing
+      _ -> throwIO e
 
 -- | XXX: add GHC parameters to add the right location
 -- There's a bootstrapping problem with the GHC options
 alpacasMain :: (Dyre.Params Config -> Config) -> IO ()
-alpacasMain cfg = do
-  params' <- initializeConfiguration params
-  Dyre.wrapMain params' $ cfg params'
+alpacasMain cfg = do params' <- initializeConfiguration params
+                     Dyre.wrapMain params' $ cfg params'
     where
       params = Dyre.defaultParams
                { Dyre.projectName = "alpacas"
@@ -155,9 +179,11 @@ alpacasMain cfg = do
 
 initializeConfiguration :: Dyre.Params a -> IO (Dyre.Params a)
 initializeConfiguration p = do
-  cfgPth <- configPath p
-  createDirectoryIfMissing True cfgPth
-  mGhcOpts <- setGHCOpts cfgPth
+  (_,customBinaryName,cfgFileName,_) <- Dyre.getPaths p
+  let cachePath = takeDirectory customBinaryName
+  let cfgPath = takeDirectory cfgFileName
+  mapM_ (createDirectoryIfMissing True) [cfgPath, cachePath]
+  mGhcOpts <- setGHCOpts cfgPath
   return p { Dyre.ghcOpts = fromMaybe (Dyre.ghcOpts p) mGhcOpts }
 
 setGHCOpts :: FilePath -> IO (Maybe [String])
@@ -166,7 +192,6 @@ setGHCOpts cfgPth =
       onErr e  = do
         putStrLn $ "Error loading GHC options: " ++ show e
         unless (isDoesNotExistError e) (ioError e)
-        putStrLn $ "Options file does not exist: " ++ show e
         return Nothing
   in loadOpts `catch` onErr
 
@@ -211,6 +236,3 @@ statusPage cfg =
                   Nothing -> H.p $ H.text "Started OK!"
                   Just e  -> H.pre $ H.string e
             }
-
-reloadServer :: MonadIO m => m a
-reloadServer = liftIO $ throwIO UserInterrupt
