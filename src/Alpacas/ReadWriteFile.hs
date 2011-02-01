@@ -53,9 +53,7 @@ renderEditForm ef =
       H.br
       maybe (return ()) fnTag $ efFileName ef
       H.input ! A.type_ "submit" ! A.value "Save"
-      case efDefaultContentPath ef of
-        Nothing -> return ()
-        Just _  -> H.input ! A.type_ "button" ! A.value "Load Default"
+      maybe (return ()) loadDefaultsBtn $ efDefaultContentPath ef
     where
       textArea = H.textarea ! A.rows "50" ! A.cols "80" ! A.name "content"
       formTag = action $ H.form ! A.method "post"
@@ -65,6 +63,7 @@ renderEditForm ef =
                  ! A.value (fromString fn)
       action = maybe id (\u -> (! A.action (fromString $ T.unpack u))) $
                efAction ef
+      loadDefaultsBtn fn = H.input ! A.type_ "button" ! A.value "Load Default"
 
 loadFileContent :: FilePath -> IO (Maybe T.Text)
 loadFileContent fn =
