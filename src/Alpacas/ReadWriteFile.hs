@@ -23,7 +23,7 @@ editFileWithDefault :: FilePath -> FilePath -> Snap Page
 editFileWithDefault fn def = genericEditFile fn $ Just def
 
 genericEditFile :: FilePath -> Maybe FilePath -> Snap Page
-genericEditFile fn def
+genericEditFile fn def = do
   method GET (return ()) <|> method POST (doUpdate fn)
   liftIO (showEdit fn def)
 
