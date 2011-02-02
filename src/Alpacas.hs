@@ -17,7 +17,7 @@ import Control.Monad.IO.Class ( liftIO, MonadIO )
 import Data.Maybe ( fromMaybe )
 import Prelude hiding ( catch )
 import Alpacas.Page  ( respondPage, Page(..), noHtml, renderPage, modifyBody, page, Renderer, scriptToHtml, appendBody, addCss, AlterPage, Stylesheet(..), addScript, Script(..) )
-import Alpacas.ReadWriteFile ( editFileWithDefault, editFile )
+import Alpacas.ReadWriteFile ( editFileWithDefault, editFile, loadFileContent )
 import Alpacas.Types ( Config(..) )
 import Snap.Types
 import Snap.Util.FileServe
@@ -51,6 +51,8 @@ defaultApp params cfg reloadServer = do
            redirect "http://localhost:8000/"
 
          , path "find-file" $ editFileParam r'
+
+         , path "load-file" $ loadFileParam
 
          , do q <- liftIO $ configPath params
               let editPfx fn = editFileWithDefault (q </> fn) (dataDir </> fn) >>= respondPage r'
@@ -88,6 +90,12 @@ editFileParam :: Renderer -> Snap ()
 editFileParam r = do
   fn <- requireParam "filename"
   editFile (T.unpack $ E.decodeUtf8 fn) >>= respondPage r
+
+loadFileParam :: Snap ()
+loadFileParam = do
+  fn <- requireParam "filename"
+  c <- liftIO $ loadFileContent (T.unpack $ E.decodeUtf8 fn)
+  writeText $ fromMaybe "TODO 404?" c
 
 defaultStyles :: AlterPage
 defaultStyles = ours . y

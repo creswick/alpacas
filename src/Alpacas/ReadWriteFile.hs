@@ -47,23 +47,25 @@ data EditForm =
              }
 
 renderEditForm :: EditForm -> H.Html
-renderEditForm ef =
+renderEditForm ef = do
+    maybe (return ()) loadDefaultsBtn $ efDefaultContentPath ef
     formTag $ do
       textArea $ H.text $ maybe T.empty id $ efContent ef
       H.br
       maybe (return ()) fnTag $ efFileName ef
       H.input ! A.type_ "submit" ! A.value "Save"
-      maybe (return ()) loadDefaultsBtn $ efDefaultContentPath ef
     where
       textArea = H.textarea ! A.rows "50" ! A.cols "80" ! A.name "content"
+
       formTag = action $ H.form ! A.method "post"
       fnTag fn = H.input
                  ! A.type_ "hidden"
                  ! A.name "filename"
                  ! A.value (fromString fn)
+      -- this is really hard to understand:
       action = maybe id (\u -> (! A.action (fromString $ T.unpack u))) $
                efAction ef
-      loadDefaultsBtn fn = H.input ! A.type_ "button" ! A.value "Load Default"
+      loadDefaultsBtn fn = H.form ! A.method "post" ! A.action "edit-file" $ H.input ! A.type_ "button" ! A.value "Load Default"
 
 loadFileContent :: FilePath -> IO (Maybe T.Text)
 loadFileContent fn =
